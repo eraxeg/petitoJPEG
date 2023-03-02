@@ -432,14 +432,14 @@
 
     /* default quantization tables */
     var YQT = new Uint32Array([
-            16, 11, 10, 16, 24, 40, 51, 61,
-            12, 12, 14, 19, 26, 58, 60, 55,
-            14, 13, 16, 24, 40, 57, 69, 56,
-            14, 17, 22, 29, 51, 87, 80, 62,
-            18, 22, 37, 56, 68,109,103, 77,
-            24, 35, 55, 64, 81,104,113, 92,
-            49, 64, 78, 87,103,121,120,101,
-            72, 92, 95, 98,112,100,103, 99
+             1,  1,  1,  1,  1,  1,  1,  1,
+             1,  1,  1,  1,  1,  1,  1,  1,
+             1,  1,  1,  1,  1,  1,  1,  1,
+             1,  1,  1,  1,  1,  1,  1,  1,
+             1,  1,  1,  1,  1,  1,  1,  1,
+             1,  1,  1,  1,  1,  1,  1,  1,
+             1,  1,  1,  1,  1,  1,  1,  1,
+             1,  1,  1,  1,  1,  1,  1,  1
             ]);
 
     var UVQT = new Uint32Array([
@@ -899,7 +899,7 @@
          *
          * Returns double
          */
-        function processDU( CDU, fdtbl, DC, HTDC, HTAC )
+        function processDU( CDU, fdtbl, DC, HTDC, HTAC, indexToAmplify, amount )
         {
 
             var DU_DCT = fDCTQuant( CDU, fdtbl);
@@ -933,6 +933,12 @@
             var accoeff; //int16
             var lastcoeff_pos = 0; //ui32
             var maxcoeff = 64; // int
+
+            if (indexToAmplify){
+                // DU_DCT[indexToAmplify] = Math.abs(Math.max.apply(null, DU_DCT.subarray(1)))+amount/4.0
+                DU_DCT[zz.indexOf(indexToAmplify)] = amount*5
+                DEBUGMSG(DU_DCT)
+            }
 
             var i = 0;
             while( 1 )
@@ -1246,10 +1252,22 @@
          * uses auto for chroma sampling
          * 
          */
-        this.encode = function (quality, img, bw) {
-            this.encode_ext(quality, img, bw, "auto");
+        this.encode = function (quality, img, bw, message, amount) {
+            this.encode_ext(quality, img, bw, message, amount, "auto");
         }
 
+
+        function getIndex(message, xpos, ypos, width ){
+            let positionToEncode = (ypos*Math.ceil(width/8)+xpos)/8;
+            let indexToEncode = 0
+            try{
+                if (positionToEncode < message.length)
+                    indexToEncode = message[positionToEncode].toUpperCase().charCodeAt()-32
+            } catch (TypeError) {
+                DEBUGMSG(positionToEncode)
+            }
+            return indexToEncode;
+        }
 
         /**
          * The encode function
@@ -1261,7 +1279,7 @@
          *
          * 
          */
-        this.encode_ext = function (quality, img, bw, sr)
+        this.encode_ext = function (quality, img, bw, message, amount, sr)
         {
             if(!img) 
                 DEBUGMSG("input image not provided. aborting encode");
@@ -1269,16 +1287,11 @@
             if(!bw) 
                 DEBUGMSG("byte writer not provided. aborting encode");
 
+            // always run at 444 to prevent handling DCT message encoding in 420
             var _444 = true;
-            if(sr=="auto") {
-                if(quality>50) {
-                    _444 = true;
-                } else {
-                    _444 = false;
-                }
-            }
 
             DEBUGMSG(sprintf("pttjpeg_encode  qual:%d,  %dx%d, %s:%s", quality ,img.width,img.height, sr, _444 ? "4:4:4": "4:2:0" ));
+            DEBUGMSG(`message is ${message}`);
             var start = new Date().getTime();
 
             init_quality_settings(quality);
@@ -1310,37 +1323,23 @@
             var ypos,xpos;
             var mcucount = 0;
 
+            var indexToEncode = 0;
 
-            if(_444) {
-                // 4:4:4 
-                for (ypos=0; ypos<height; ypos+=8)
+
+            // 4:4:4 
+            for (ypos=0; ypos<height; ypos+=8)
+            {
+                for (xpos=0; xpos<width; xpos+=8)
                 {
-                    for (xpos=0; xpos<width; xpos+=8)
-                    {
-                        rgb2yuv_444( xpos, ypos, YDU, UDU, VDU );
-                        DCY = processDU( YDU, fdtbl_Y, DCY, YDC_HT, YAC_HT);
-                        DCU = processDU( UDU, fdtbl_UV, DCU, UVDC_HT, UVAC_HT);
-                        DCV = processDU( VDU, fdtbl_UV, DCV, UVDC_HT, UVAC_HT);
-
-
-                    }
-                }
-            } else {
-                // 4:2:0 
-                for (ypos=0; ypos<height; ypos+=16)
-                {
-                    for(xpos=0; xpos<width; xpos += 16 )
-                    {
-                        rgb2yuv_420( xpos, ypos );
-                        DCY = processDU( YDU, fdtbl_Y, DCY, YDC_HT, YAC_HT);
-                        DCY = processDU( YDU2, fdtbl_Y, DCY, YDC_HT, YAC_HT);
-                        DCY = processDU( YDU3, fdtbl_Y, DCY, YDC_HT, YAC_HT);
-                        DCY = processDU( YDU4, fdtbl_Y, DCY, YDC_HT, YAC_HT);
-                        DCU = processDU( UDU, fdtbl_UV, DCU, UVDC_HT, UVAC_HT);
-                        DCV = processDU( VDU, fdtbl_UV, DCV, UVDC_HT, UVAC_HT);
-                    }
+                    rgb2yuv_444( xpos, ypos, YDU, UDU, VDU );
+                    indexToEncode = getIndex(message, xpos, ypos, width)
+                    // DEBUGMSG(indexToEncode)
+                    DCY = processDU( YDU, fdtbl_Y, DCY, YDC_HT, YAC_HT, indexToEncode, amount);
+                    DCU = processDU( UDU, fdtbl_UV, DCU, UVDC_HT, UVAC_HT, 0);
+                    DCV = processDU( VDU, fdtbl_UV, DCV, UVDC_HT, UVAC_HT, 0);
                 }
             }
+
 
             writeEOI();
             DEBUGMSG(sprintf("wrote EOI. %d bytes written", bitwriter.getWrittenBytes() ));
@@ -1375,8 +1374,10 @@
                 msg.data.imageData.height = msg.data.height;
                 var inImg = new encoder.pttImage( msg.data.imageData );
                 var bw = new encoder.ByteWriter();
+                var message = msg.data.message;
+                var amount = msg.data.amount;
 
-                encoder.encode(msg.data.quality, inImg, bw);
+                encoder.encode(msg.data.quality, inImg, bw, message, amount);
 
                 var url = bw.getImgUrl();
 
