@@ -937,7 +937,7 @@
             if (indexToAmplify){
                 // DU_DCT[indexToAmplify] = Math.abs(Math.max.apply(null, DU_DCT.subarray(1)))+amount/4.0
                 DU_DCT[zz.indexOf(indexToAmplify)] = amount*5
-                // DEBUGMSG(DU_DCT)
+                DEBUGMSG(DU_DCT)
             }
 
             var i = 0;
